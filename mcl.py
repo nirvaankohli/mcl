@@ -51,7 +51,7 @@ big_slip_theta_change_lower_limit = 5  # in degrees
 
 spawn_x = np.random.normal(initial_x, 20.0, NUMBER_OF_PARTICLES)
 spawn_y = np.random.normal(initial_y, 20.0, NUMBER_OF_PARTICLES)
-spawn_theta = np.random.normal(initial_robot_theta, 20.0, NUMBER_OF_PARTICLES) % 360
+spawn_theta = np.random.normal(initial_robot_theta, 5.0, NUMBER_OF_PARTICLES) % 360
 spawn_x = np.clip(spawn_x, 0, MAP_DIMENSIONS[0])
 spawn_y = np.clip(spawn_y, 0, MAP_DIMENSIONS[1])
 
