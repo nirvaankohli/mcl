@@ -432,6 +432,8 @@ def get_sensor_ray(origin_x, origin_y, direction_x, direction_y):
 
     ray_distance = min(distance for distance in distances_to_wall if distance >= 0)
 
+
+
     return (
         origin_x + direction_x * ray_distance,
         origin_y + direction_y * ray_distance,
