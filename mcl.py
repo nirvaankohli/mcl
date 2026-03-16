@@ -82,7 +82,9 @@ robot_shape = patches.Rectangle(
 (down_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
 (left_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
 (right_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
+
 particles_heading_vectors = ax.quiver(
+
     particles[:, 0],
     particles[:, 1],
     particle_dx,
@@ -94,6 +96,7 @@ particles_heading_vectors = ax.quiver(
     alpha=0.35,
     width=0.002,
     zorder=1,
+    
 )
 
 
