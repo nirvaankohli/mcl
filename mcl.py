@@ -83,6 +83,16 @@ keys = {"up": False, "down": False, "left": False, "right": False}
 # Visualization setup
 
 fig, ax = plt.subplots(figsize=(8, 8))
+error_text = ax.text(
+    0.02,
+    0.98,
+    "",
+    transform=ax.transAxes,
+    va="top",
+    ha="left",
+    fontsize=9,
+    bbox=dict(facecolor="white", alpha=0.8, edgecolor="none"),
+)
 
 field_shape = patches.Rectangle(
     (0, 0),
@@ -126,7 +136,21 @@ robot_shape = patches.Rectangle(
     linestyle="None",
     label="Odometry",
 )
-(heading_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
+(actual_heading_line,) = ax.plot(
+    [], [], color="blue", linewidth=2, zorder=5, label="Actual heading"
+)
+(mcl_heading_line,) = ax.plot(
+    [], [], color="green", linewidth=2, linestyle="--", zorder=5, label="MCL heading"
+)
+(odometry_heading_line,) = ax.plot(
+    [],
+    [],
+    color="goldenrod",
+    linewidth=2,
+    linestyle=":",
+    zorder=5,
+    label="Odometry heading",
+)
 (particles_scatter,) = ax.plot([], [], "r.", markersize=2, alpha=0.5, zorder=2)
 (top_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
 (bottom_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
@@ -499,6 +523,10 @@ def keep_robot_in_bounds(theta_rad):
     robot_y = max(y_extent, min(MAP_DIMENSIONS[1] - y_extent, robot_y))
 
 
+def angle_error_deg(reference_theta, compared_theta):
+    return abs((compared_theta - reference_theta + 180) % 360 - 180)
+
+
 # initialization function for the animation, setting up the plot limits, aspect ratio, and initial positions of all elements
 
 
@@ -523,26 +551,59 @@ def init():
     particles_heading_vectors.set_offsets(particles[:, :2])
     particles_heading_vectors.set_UVC(particle_dx, particle_dy)
 
-    estimated_x, estimated_y, _ = mcl_instance.get_estimated_pose()
+    estimated_x, estimated_y, estimated_theta = mcl_instance.get_estimated_pose()
     center_dot.set_data([robot_x], [robot_y])
     mcl_estimated_dot.set_data([estimated_x], [estimated_y])
     odometry_dot.set_data([mcl_instance.odometry_x], [mcl_instance.odometry_y])
 
-    mcl_error = math.hypot(robot_x - estimated_x, robot_y - estimated_y)
-    odom_error = math.hypot(
+    arrow_length = 15.0
+    robot_theta_rad = math.radians(robot_theta)
+    estimated_theta_rad = math.radians(estimated_theta)
+    odometry_theta_rad = math.radians(mcl_instance.odometry_theta)
+
+    actual_heading_line.set_data(
+        [robot_x, robot_x + arrow_length * math.sin(robot_theta_rad)],
+        [robot_y, robot_y + arrow_length * math.cos(robot_theta_rad)],
+    )
+    mcl_heading_line.set_data(
+        [estimated_x, estimated_x + arrow_length * math.sin(estimated_theta_rad)],
+        [estimated_y, estimated_y + arrow_length * math.cos(estimated_theta_rad)],
+    )
+    odometry_heading_line.set_data(
+        [
+            mcl_instance.odometry_x,
+            mcl_instance.odometry_x + arrow_length * math.sin(odometry_theta_rad),
+        ],
+        [
+            mcl_instance.odometry_y,
+            mcl_instance.odometry_y + arrow_length * math.cos(odometry_theta_rad),
+        ],
+    )
+
+    mcl_pos_error = math.hypot(robot_x - estimated_x, robot_y - estimated_y)
+    odom_pos_error = math.hypot(
         robot_x - mcl_instance.odometry_x, robot_y - mcl_instance.odometry_y
     )
-    ax.set_title(
-        f"VEX Virtual Field (Theta: {robot_theta:.1f}°) | MCL err: {mcl_error:.2f} | Odom err: {odom_error:.2f}"
+    mcl_heading_error = angle_error_deg(robot_theta, estimated_theta)
+    odom_heading_error = angle_error_deg(robot_theta, mcl_instance.odometry_theta)
+
+    error_text.set_text(
+        f"MCL pos err: {mcl_pos_error:.2f} in | MCL heading err: {mcl_heading_error:.1f}°\n"
+        f"Odom pos err: {odom_pos_error:.2f} in | Odom heading err: {odom_heading_error:.1f}°"
     )
+
+    ax.set_title(f"VEX Virtual Field (Theta: {robot_theta:.1f}°)")
 
     return (
         field_shape,
         robot_shape,
+        error_text,
         center_dot,
         mcl_estimated_dot,
         odometry_dot,
-        heading_line,
+        actual_heading_line,
+        mcl_heading_line,
+        odometry_heading_line,
         particles_scatter,
         particles_heading_vectors,
         top_distance_line,
@@ -614,37 +675,59 @@ def update(frame):
     robot_shape.set_xy((corner_x, corner_y))
     robot_shape.set_angle(-robot_theta)
 
-    estimated_x, estimated_y, _ = mcl_instance.get_estimated_pose()
+    estimated_x, estimated_y, estimated_theta = mcl_instance.get_estimated_pose()
 
     center_dot.set_data([robot_x], [robot_y])
     mcl_estimated_dot.set_data([estimated_x], [estimated_y])
     odometry_dot.set_data([mcl_instance.odometry_x], [mcl_instance.odometry_y])
 
-    # thetha calculation w arrow
-
     arrow_length = 15.0
+    estimated_theta_rad = math.radians(estimated_theta)
+    odometry_theta_rad = math.radians(mcl_instance.odometry_theta)
 
-    dx = arrow_length * math.sin(theta_rad)
-    dy = arrow_length * math.cos(theta_rad)
+    actual_heading_line.set_data(
+        [robot_x, robot_x + arrow_length * math.sin(theta_rad)],
+        [robot_y, robot_y + arrow_length * math.cos(theta_rad)],
+    )
+    mcl_heading_line.set_data(
+        [estimated_x, estimated_x + arrow_length * math.sin(estimated_theta_rad)],
+        [estimated_y, estimated_y + arrow_length * math.cos(estimated_theta_rad)],
+    )
+    odometry_heading_line.set_data(
+        [
+            mcl_instance.odometry_x,
+            mcl_instance.odometry_x + arrow_length * math.sin(odometry_theta_rad),
+        ],
+        [
+            mcl_instance.odometry_y,
+            mcl_instance.odometry_y + arrow_length * math.cos(odometry_theta_rad),
+        ],
+    )
 
-    heading_line.set_data([robot_x, robot_x + dx], [robot_y, robot_y + dy])
-
-    mcl_error = math.hypot(robot_x - estimated_x, robot_y - estimated_y)
-    odom_error = math.hypot(
+    mcl_pos_error = math.hypot(robot_x - estimated_x, robot_y - estimated_y)
+    odom_pos_error = math.hypot(
         robot_x - mcl_instance.odometry_x, robot_y - mcl_instance.odometry_y
     )
+    mcl_heading_error = angle_error_deg(robot_theta, estimated_theta)
+    odom_heading_error = angle_error_deg(robot_theta, mcl_instance.odometry_theta)
 
-    ax.set_title(
-        f"VEX Virtual Field (Theta: {robot_theta:.1f}°) | MCL err: {mcl_error:.2f} | Odom err: {odom_error:.2f}"
+    error_text.set_text(
+        f"MCL pos err: {mcl_pos_error:.2f} in | MCL heading err: {mcl_heading_error:.1f}°\n"
+        f"Odom pos err: {odom_pos_error:.2f} in | Odom heading err: {odom_heading_error:.1f}°"
     )
+
+    ax.set_title(f"VEX Virtual Field (Theta: {robot_theta:.1f}°)")
 
     return (
         field_shape,
         robot_shape,
+        error_text,
         center_dot,
         mcl_estimated_dot,
         odometry_dot,
-        heading_line,
+        actual_heading_line,
+        mcl_heading_line,
+        odometry_heading_line,
         particles_scatter,
         particles_heading_vectors,
         top_distance_line,
