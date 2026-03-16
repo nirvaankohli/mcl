@@ -65,17 +65,17 @@ particle_theta_rad = np.radians(particles[:, 2])
 particle_dx = particle_vector_length * np.sin(particle_theta_rad)
 particle_dy = particle_vector_length * np.cos(particle_theta_rad)
 
-# setup and define the distance sensors (up, down, left, right) with their positions and directions relative to the robot
+# setup and define the distance sensors (top, bottom, left, right) with their positions and directions relative to the robot
 
-distance_sensor_available = ["up", "down", "left", "right"]
+distance_sensor_available = ["top", "bottom", "left", "right"]
 distance_sensors = {
-    "up": ((0, 0), (0.0, 0.0)),
-    "down": ((0, 0), (0.0, 0.0)),
+    "top": ((0, 0), (0.0, 0.0)),
+    "bottom": ((0, 0), (0.0, 0.0)),
     "left": ((0, 0), (0.0, 0.0)),
     "right": ((0, 0), (0.0, 0.0)),
 }
 
-distance_sensor_distances = {"up": 0.0, "down": 0.0, "left": 0.0, "right": 0.0}
+distance_sensor_distances = {"top": 0.0, "bottom": 0.0, "left": 0.0, "right": 0.0}
 
 keys = {"up": False, "down": False, "left": False, "right": False}
 
@@ -107,8 +107,8 @@ robot_shape = patches.Rectangle(
 (center_dot,) = ax.plot([], [], marker="o", color="blue", markersize=5)  # Center dot
 (heading_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
 (particles_scatter,) = ax.plot([], [], "r.", markersize=2, alpha=0.5, zorder=2)
-(up_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
-(down_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
+(top_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
+(bottom_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
 (left_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
 (right_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
 
@@ -136,12 +136,14 @@ class mcl:
             0, theta_noise
         )  # Simulated IMU reading with noise
 
+        self.sensors = {}
+
         # distance sensors(distances to wall)
 
-        self.sensors["top"] = distance_sensor_distances["up"] + np.random.normal(
+        self.sensors["top"] = distance_sensor_distances["top"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.sensors["bottom"] = distance_sensor_distances["down"] + np.random.normal(
+        self.sensors["bottom"] = distance_sensor_distances["bottom"] + np.random.normal(
             0, distance_sensor_noise
         )
         self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
@@ -181,10 +183,10 @@ class mcl:
 
         # update the distance sensor readings with noise, which will be used to update the weights of the particles based on how well their predicted sensor readings match these actual noisy readings
 
-        self.sensors["top"] = distance_sensor_distances["up"] + np.random.normal(
+        self.sensors["top"] = distance_sensor_distances["top"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.sensors["bottom"] = distance_sensor_distances["down"] + np.random.normal(
+        self.sensors["bottom"] = distance_sensor_distances["bottom"] + np.random.normal(
             0, distance_sensor_noise
         )
         self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
@@ -235,10 +237,10 @@ class mcl:
 
         theta_rad = math.radians(particle_theta)
 
-        if sensor_name == "up":
+        if sensor_name == "top":
             direction_x = math.sin(theta_rad)
             direction_y = math.cos(theta_rad)
-        elif sensor_name == "down":
+        elif sensor_name == "bottom":
             direction_x = -math.sin(theta_rad)
             direction_y = -math.cos(theta_rad)
         elif sensor_name == "left":
@@ -265,7 +267,7 @@ class mcl:
             for sensor_name in distance_sensor_available:
 
                 expected_distance = self.sensors[sensor_name]
-                particle_x, particle_y, particle_theta = particles[i]
+                particle_x, particle_y, particle_theta, weight = particles[i]
 
                 # calculate the expected sensor reading for this particle based on its position and orientation, which will be compared to the actual sensor reading to update the particle's weight
 
@@ -374,21 +376,21 @@ def update_distance_sensors(theta_rad):
     # defining the sensor origins and directions based on the robot's current position and orientation
 
     sensor_definitions = {
-        "up": {
+        "top": {
             "origin": (
                 robot_x + forward_x * half_length,
                 robot_y + forward_y * half_length,
             ),
             "direction": (forward_x, forward_y),
-            "line": up_distance_line,
+            "line": top_distance_line,
         },
-        "down": {
+        "bottom": {
             "origin": (
                 robot_x - forward_x * half_length,
                 robot_y - forward_y * half_length,
             ),
             "direction": (-forward_x, -forward_y),
-            "line": down_distance_line,
+            "line": bottom_distance_line,
         },
         "left": {
             "origin": (robot_x + left_x * half_width, robot_y + left_y * half_width),
@@ -468,8 +470,8 @@ def init():
         heading_line,
         particles_scatter,
         particles_heading_vectors,
-        up_distance_line,
-        down_distance_line,
+        top_distance_line,
+        bottom_distance_line,
         left_distance_line,
         right_distance_line,
     )
@@ -516,9 +518,9 @@ def update(frame):
     keep_robot_in_bounds(theta_rad)
 
     update_distance_sensors(theta_rad)
-    
+
     if moved_or_turned:
-        
+
         mcl_instance.update()
 
     particles_scatter.set_data(particles[:, 0], particles[:, 1])
@@ -557,8 +559,8 @@ def update(frame):
         heading_line,
         particles_scatter,
         particles_heading_vectors,
-        up_distance_line,
-        down_distance_line,
+        top_distance_line,
+        bottom_distance_line,
         left_distance_line,
         right_distance_line,
     )
