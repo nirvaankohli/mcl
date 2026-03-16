@@ -202,7 +202,7 @@ class mcl:
 
         self.last_odometry_x = robot_x + np.random.normal(0, odometry_noise)
         self.last_odometry_y = robot_y + np.random.normal(0, odometry_noise)
-        self.last_odometry_theta = self.imu
+        self.last_odometry_theta = self.imu + np.random.normal(0, odometry_theta_noise)
         self.odometry_x = self.last_odometry_x
         self.odometry_y = self.last_odometry_y
         self.odometry_theta = self.last_odometry_theta
