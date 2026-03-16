@@ -137,16 +137,16 @@ class mcl:
 
         # distance sensors(distances to wall)
 
-        self.top_distance = distance_sensor_distances["up"] + np.random.normal(
+        self.sensors["top"] = distance_sensor_distances["up"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.bottom_distance = distance_sensor_distances["down"] + np.random.normal(
+        self.sensors["bottom"] = distance_sensor_distances["down"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.left_distance = distance_sensor_distances["left"] + np.random.normal(
+        self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.right_distance = distance_sensor_distances["right"] + np.random.normal(
+        self.sensors["right"] = distance_sensor_distances["right"] + np.random.normal(
             0, distance_sensor_noise
         )
 
@@ -180,16 +180,16 @@ class mcl:
 
         # update the distance sensor readings with noise, which will be used to update the weights of the particles based on how well their predicted sensor readings match these actual noisy readings
 
-        self.top_distance = distance_sensor_distances["up"] + np.random.normal(
+        self.sensors["top"] = distance_sensor_distances["up"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.bottom_distance = distance_sensor_distances["down"] + np.random.normal(
+        self.sensors["bottom"] = distance_sensor_distances["down"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.left_distance = distance_sensor_distances["left"] + np.random.normal(
+        self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
             0, distance_sensor_noise
         )
-        self.right_distance = distance_sensor_distances["right"] + np.random.normal(
+        self.sensors["right"] = distance_sensor_distances["right"] + np.random.normal(
             0, distance_sensor_noise
         )
 
@@ -227,12 +227,60 @@ class mcl:
 
 
 
+    def calculate_expected_sensor_reading(self, particle_x, particle_y, particle_theta, sensor_name):
+
+        # calculate the expected sensor reading for a given particle based on its position and orientation, which will be compared to the actual sensor reading to update the particle's weight
+
+        theta_rad = math.radians(particle_theta)
+
+        if sensor_name == "up":
+            direction_x = math.sin(theta_rad)
+            direction_y = math.cos(theta_rad)
+        elif sensor_name == "down":
+            direction_x = -math.sin(theta_rad)
+            direction_y = -math.cos(theta_rad)
+        elif sensor_name == "left":
+            direction_x = math.cos(theta_rad)
+            direction_y = -math.sin(theta_rad)
+        elif sensor_name == "right":
+            direction_x = -math.cos(theta_rad)
+            direction_y = math.sin(theta_rad)
+
+        sensor_end_x, sensor_end_y, expected_distance = get_sensor_ray(
+            particle_x, particle_y, direction_x, direction_y
+        )
+
+        return expected_distance
+
             
     def update_weights(self):
 
         # update the weights of the particles based on how similar their predicted sensor readings are to the actual sensor readings, which will be used to resample the particles and calculate the new predicted position of the robot
-
+        
         for i in range(NUMBER_OF_PARTICLES):
+
+            sensor_weight_results = []
+
+            for sensor_name in distance_sensor_available:
+
+                expected_distance = self.sensors[sensor_name]
+                particle_x, particle_y, particle_theta = particles[i]
+
+                # calculate the expected sensor reading for this particle based on its position and orientation, which will be compared to the actual sensor reading to update the particle's weight
+
+                predicted_distance = self.calculate_expected_sensor_reading(
+                    particle_x, particle_y, particle_theta, sensor_name)
+                
+                sensor_weight_results.append(
+                    np.exp(-0.5 * ((predicted_distance - expected_distance) / distance_sensor_noise) ** 2)
+                )
+
+            particles[i, 3] = np.prod(sensor_weight_results)
+
+
+                
+
+
 
 
 
