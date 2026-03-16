@@ -18,6 +18,10 @@ initial_x = 40.0
 initial_y = 40.0
 initial_robot_theta = 70.0
 
+predicted_x = initial_x
+predicted_y = initial_y
+predicted_theta = initial_robot_theta
+
 particles = np.random.uniform(0, 144, (NUMBER_OF_PARTICLES, 2))
 
 distance_sensor_noise = 0.5
@@ -166,6 +170,21 @@ def on_release(event):
     if event.key in keys:
         keys[event.key] = False
 
+def mcl():
+
+    # Main loop for the MCL simulation
+    # Lets start by defining all the sensors to our use
+
+    imu = robot_theta + np.random.normal(0, 1.0)  # Simulated IMU reading with noise
+
+    # distance sensors(distances to wall)
+
+    top_distance = distance_sensor_distances["up"] + np.random.normal(0, distance_sensor_noise)
+    bottom_distance = distance_sensor_distances["down"] + np.random.normal(0, distance_sensor_noise)
+    left_distance = distance_sensor_distances["left"] + np.random.normal(0, distance_sensor_noise)
+    right_distance = distance_sensor_distances["right"] + np.random.normal(0, distance_sensor_noise)
+
+    last_state = (predicted_x, predicted_y, predicted_theta)
 
 def update(frame):
     global robot_x, robot_y, robot_theta
