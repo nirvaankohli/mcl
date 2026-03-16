@@ -244,11 +244,11 @@ class mcl:
             direction_x = -math.sin(theta_rad)
             direction_y = -math.cos(theta_rad)
         elif sensor_name == "left":
-            direction_x = math.cos(theta_rad)
-            direction_y = -math.sin(theta_rad)
-        elif sensor_name == "right":
             direction_x = -math.cos(theta_rad)
             direction_y = math.sin(theta_rad)
+        elif sensor_name == "right":
+            direction_x = math.cos(theta_rad)
+            direction_y = -math.sin(theta_rad)
 
         sensor_end_x, sensor_end_y, expected_distance = get_sensor_ray(
             particle_x, particle_y, direction_x, direction_y
