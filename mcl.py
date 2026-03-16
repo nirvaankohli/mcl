@@ -5,10 +5,13 @@ import math
 import numpy as np
 
 # Config
+
 NUMBER_OF_PARTICLES = 1000
 MAP_DIMENSIONS = (144, 144)
 PLOT_PADDING = 15
 ROBOT_SIZE = (16, 18)
+
+# setting up the initial robot position & variables to keep track of both real and predicted pos of bot
 
 robot_x = 72.0
 robot_y = 40
@@ -26,6 +29,17 @@ predicted_x = initial_x
 predicted_y = initial_y
 predicted_theta = initial_robot_theta
 
+# define the amount of noise for the sensors and the initial spread of the particles
+
+distance_sensor_noise = 0.5 # in inches
+odometry_noise = 0.5 # in inches
+
+odometry_theta_noise = 1.3 # in degrees
+theta_noise = 0.2 # in degrees
+
+# spawn particles around the initial position with some noise
+# ensure they are within the map boundaries
+
 spawn_x = np.random.normal(initial_x, 20.0, NUMBER_OF_PARTICLES)
 spawn_y = np.random.normal(initial_y, 20.0, NUMBER_OF_PARTICLES)
 spawn_theta = np.random.normal(initial_robot_theta, 20.0, NUMBER_OF_PARTICLES) % 360
@@ -36,10 +50,12 @@ particles = np.column_stack((spawn_x, spawn_y, spawn_theta))
 
 particle_vector_length = 2.5
 particle_theta_rad = np.radians(particles[:, 2])
+
 particle_dx = particle_vector_length * np.sin(particle_theta_rad)
 particle_dy = particle_vector_length * np.cos(particle_theta_rad)
 
-distance_sensor_noise = 0.5
+# setup and define the distance sensors (up, down, left, right) with their positions and directions relative to the robot
+
 distance_sensor_available = ["up", "down", "left", "right"]
 distance_sensors = {
     "up": ((0, 0), (0.0, 0.0)),
@@ -50,10 +66,9 @@ distance_sensors = {
 
 distance_sensor_distances = {"up": 0.0, "down": 0.0, "left": 0.0, "right": 0.0}
 
-print(f"Initial particles:\n{particles}")
-print(f"Initial robot position: ({robot_x}, {robot_y}), Theta: {robot_theta}°")
-
 keys = {"up": False, "down": False, "left": False, "right": False}
+
+# Visualization setup
 
 fig, ax = plt.subplots(figsize=(8, 8))
 
@@ -74,6 +89,8 @@ robot_shape = patches.Rectangle(
     color="blue",
     alpha=0.5,
 )
+
+# self-explanatory, just the robot's center and heading line for visualization
 
 (center_dot,) = ax.plot([], [], marker="o", color="blue", markersize=5)  # Center dot
 (heading_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
@@ -96,11 +113,14 @@ particles_heading_vectors = ax.quiver(
     alpha=0.35,
     width=0.002,
     zorder=1,
-    
+
 )
 
+# function to calculate the endpoint of a distance sensor ray based on its origin and direction
+# + ensuring it intersects with the field boundaries
 
 def get_sensor_ray(origin_x, origin_y, direction_x, direction_y):
+    
     distances_to_wall = []
 
     if direction_x > 0:
@@ -121,8 +141,10 @@ def get_sensor_ray(origin_x, origin_y, direction_x, direction_y):
         ray_distance,
     )
 
+# function to update the distance sensors' positions, directions, and visual lines based on the robot's current orientation
 
 def update_distance_sensors(theta_rad):
+    
     forward_x = math.sin(theta_rad)
     forward_y = math.cos(theta_rad)
 
@@ -134,6 +156,8 @@ def update_distance_sensors(theta_rad):
 
     half_width = ROBOT_SIZE[0] / 2
     half_length = ROBOT_SIZE[1] / 2
+
+    # defining the sensor origins and directions based on the robot's current position and orientation
 
     sensor_definitions = {
         "up": {
@@ -181,6 +205,7 @@ def update_distance_sensors(theta_rad):
             [sensor_x, sensor_end_x], [sensor_y, sensor_end_y]
         )
 
+# just making sure any part of the robot doesn't go out of bounds when it moves or rotates, considering its size and orientation
 
 def keep_robot_in_bounds(theta_rad):
     global robot_x, robot_y
@@ -196,6 +221,7 @@ def keep_robot_in_bounds(theta_rad):
     robot_x = max(x_extent, min(MAP_DIMENSIONS[0] - x_extent, robot_x))
     robot_y = max(y_extent, min(MAP_DIMENSIONS[1] - y_extent, robot_y))
 
+# initialization function for the animation, setting up the plot limits, aspect ratio, and initial positions of all elements
 
 def init():
 
@@ -240,6 +266,7 @@ def on_release(event):
     if event.key in keys:
         keys[event.key] = False
 
+# where the logic for mcl will go, we will read the sensor values, update the particles' weights based on how well they match the sensor readings, resample the particles based on their weights, and then calculate the new predicted position of the robot based on the particles' distribution
 
 def mcl():
 
@@ -265,6 +292,7 @@ def mcl():
 
     last_state = (predicted_x, predicted_y, predicted_theta)
 
+# update
 
 def update(frame):
     global robot_x, robot_y, robot_theta
@@ -331,6 +359,7 @@ def update(frame):
         right_distance_line,
     )
 
+# connecting the key press and release events to their respective handlers
 
 fig.canvas.mpl_connect("key_press_event", on_press)
 fig.canvas.mpl_connect("key_release_event", on_release)
