@@ -14,11 +14,22 @@ robot_x = 72.0
 robot_y = 40
 robot_theta = 70
 
-initial_x = 72.0
+initial_x = 40.0
 initial_y = 40.0
 initial_robot_theta = 70.0
 
 particles = np.random.uniform(0, 144, (NUMBER_OF_PARTICLES, 2))
+
+distance_sensor_noise = 0.5
+distance_sensor_available = ["up", "down", "left", "right"]
+distance_sensors = {
+    "up": ((0, 0), (0.0, 0.0)),
+    "down": ((0, 0), (0.0, 0.0)),
+    "left": ((0, 0), (0.0, 0.0)),
+    "right": ((0, 0), (0.0, 0.0)),
+}
+
+distance_sensor_distances = {"up": 0.0, "down": 0.0, "left": 0.0, "right": 0.0}
 
 print(f"Initial particles:\n{particles}")
 print(f"Initial robot position: ({robot_x}, {robot_y}), Theta: {robot_theta}°")
@@ -48,6 +59,92 @@ robot_shape = patches.Rectangle(
 (center_dot,) = ax.plot([], [], marker="o", color="blue", markersize=5)  # Center dot
 (heading_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
 (particles_scatter,) = ax.plot([], [], "r.", markersize=2, alpha=0.5, zorder=2)
+(up_distance_line,) = ax.plot([], [], color="green", linewidth=2, zorder=5)
+(down_distance_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
+(left_distance_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
+(right_distance_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
+
+
+def get_sensor_ray(origin_x, origin_y, direction_x, direction_y):
+    distances_to_wall = []
+
+    if direction_x > 0:
+        distances_to_wall.append((MAP_DIMENSIONS[0] - origin_x) / direction_x)
+    elif direction_x < 0:
+        distances_to_wall.append((0 - origin_x) / direction_x)
+
+    if direction_y > 0:
+        distances_to_wall.append((MAP_DIMENSIONS[1] - origin_y) / direction_y)
+    elif direction_y < 0:
+        distances_to_wall.append((0 - origin_y) / direction_y)
+
+    ray_distance = min(distance for distance in distances_to_wall if distance >= 0)
+
+    return (
+        origin_x + direction_x * ray_distance,
+        origin_y + direction_y * ray_distance,
+        ray_distance,
+    )
+
+
+def update_distance_sensors(theta_rad):
+    forward_x = math.sin(theta_rad)
+    forward_y = math.cos(theta_rad)
+
+    right_x = math.cos(theta_rad)
+    right_y = -math.sin(theta_rad)
+
+    left_x = -right_x
+    left_y = -right_y
+
+    half_width = ROBOT_SIZE[0] / 2
+    half_length = ROBOT_SIZE[1] / 2
+
+    sensor_definitions = {
+        "up": {
+            "origin": (
+                robot_x + forward_x * half_length,
+                robot_y + forward_y * half_length,
+            ),
+            "direction": (forward_x, forward_y),
+            "line": up_distance_line,
+        },
+        "down": {
+            "origin": (
+                robot_x - forward_x * half_length,
+                robot_y - forward_y * half_length,
+            ),
+            "direction": (-forward_x, -forward_y),
+            "line": down_distance_line,
+        },
+        "left": {
+            "origin": (robot_x + left_x * half_width, robot_y + left_y * half_width),
+            "direction": (left_x, left_y),
+            "line": left_distance_line,
+        },
+        "right": {
+            "origin": (robot_x + right_x * half_width, robot_y + right_y * half_width),
+            "direction": (right_x, right_y),
+            "line": right_distance_line,
+        },
+    }
+
+    for sensor_name, sensor_definition in sensor_definitions.items():
+        sensor_x, sensor_y = sensor_definition["origin"]
+        direction_x, direction_y = sensor_definition["direction"]
+
+        sensor_end_x, sensor_end_y, sensor_distance = get_sensor_ray(
+            sensor_x, sensor_y, direction_x, direction_y
+        )
+
+        distance_sensors[sensor_name] = (
+            (sensor_x, sensor_y),
+            (sensor_end_x, sensor_end_y),
+        )
+        distance_sensor_distances[sensor_name] = sensor_distance
+        sensor_definition["line"].set_data(
+            [sensor_x, sensor_end_x], [sensor_y, sensor_end_y]
+        )
 
 
 def init():
@@ -73,29 +170,21 @@ def on_release(event):
 def update(frame):
     global robot_x, robot_y, robot_theta
 
-    moved = False
-
     if keys["left"]:
-        moved = True
         robot_theta = (robot_theta - 3) % 360
     if keys["right"]:
-        moved = True
         robot_theta = (robot_theta + 3) % 360
 
     theta_rad = math.radians(robot_theta)
 
     if keys["up"]:
-        moved = True
         robot_x += 1.5 * math.sin(theta_rad)
         robot_y += 1.5 * math.cos(theta_rad)
     if keys["down"]:
-        moved = True
         robot_x -= 1.5 * math.sin(theta_rad)
         robot_y -= 1.5 * math.cos(theta_rad)
 
-    if moved:
-
-        pass
+    update_distance_sensors(theta_rad)
 
     particles_scatter.set_data([particles[:, 0]], [particles[:, 1]])
 
@@ -120,7 +209,17 @@ def update(frame):
 
     ax.set_title(f"VEX Virtual Field (Theta: {robot_theta:.1f}°)")
 
-    return field_shape, robot_shape, center_dot, heading_line, particles_scatter
+    return (
+        field_shape,
+        robot_shape,
+        center_dot,
+        heading_line,
+        particles_scatter,
+        up_distance_line,
+        down_distance_line,
+        left_distance_line,
+        right_distance_line,
+    )
 
 
 fig.canvas.mpl_connect("key_press_event", on_press)
