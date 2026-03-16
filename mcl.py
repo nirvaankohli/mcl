@@ -18,6 +18,11 @@ initial_x = 72.0
 initial_y = 40.0
 initial_robot_theta = 70.0
 
+particles = np.random.uniform(0, 144, (NUMBER_OF_PARTICLES, 2))
+
+print(f"Initial particles:\n{particles}")
+print(f"Initial robot position: ({robot_x}, {robot_y}), Theta: {robot_theta}°")
+
 keys = {"up": False, "down": False, "left": False, "right": False}
 
 fig, ax = plt.subplots(figsize=(8, 8))
@@ -42,11 +47,13 @@ robot_shape = patches.Rectangle(
 
 (center_dot,) = ax.plot([], [], marker="o", color="blue", markersize=5)  # Center dot
 (heading_line,) = ax.plot([], [], color="red", linewidth=2, zorder=5)
+(particles_scatter,) = ax.plot([], [], "r.", markersize=2, alpha=0.5, zorder=2)
 
 
 def init():
     ax.set_xlim(-PLOT_PADDING, MAP_DIMENSIONS[0] + PLOT_PADDING)
     ax.set_ylim(-PLOT_PADDING, MAP_DIMENSIONS[1] + PLOT_PADDING)
+
     ax.set_aspect("equal")
     ax.add_patch(field_shape)
     ax.add_patch(robot_shape)
@@ -66,19 +73,31 @@ def on_release(event):
 def update(frame):
     global robot_x, robot_y, robot_theta
 
+    moved = False
+
     if keys["left"]:
+        moved = True
         robot_theta = (robot_theta - 3) % 360
     if keys["right"]:
+        moved = True
         robot_theta = (robot_theta + 3) % 360
 
     theta_rad = math.radians(robot_theta)
 
     if keys["up"]:
+        moved = True
         robot_x += 1.5 * math.sin(theta_rad)
         robot_y += 1.5 * math.cos(theta_rad)
     if keys["down"]:
+        moved = True
         robot_x -= 1.5 * math.sin(theta_rad)
         robot_y -= 1.5 * math.cos(theta_rad)
+
+    if moved:
+
+        pass
+
+    particles_scatter.set_data([particles[:, 0]], [particles[:, 1]])
 
     # displaying robot
 
@@ -101,7 +120,7 @@ def update(frame):
 
     ax.set_title(f"VEX Virtual Field (Theta: {robot_theta:.1f}°)")
 
-    return field_shape, robot_shape, center_dot, heading_line
+    return field_shape, robot_shape, center_dot, heading_line, particles_scatter
 
 
 fig.canvas.mpl_connect("key_press_event", on_press)
