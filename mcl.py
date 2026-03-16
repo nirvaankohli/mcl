@@ -32,10 +32,19 @@ predicted_theta = initial_robot_theta
 # define the amount of noise for the sensors and the initial spread of the particles
 
 distance_sensor_noise = 0.5 # in inches
-odometry_noise = 0.5 # in inches
+odometry_noise = 3 # in inches
 
-odometry_theta_noise = 1.3 # in degrees
+odometry_theta_noise = 1 # in degrees
 theta_noise = 0.2 # in degrees
+
+# simulate big slip (rare)
+
+big_slip_chance = 0.03
+big_slip_distance_upper_limit = 6 # in inches
+big_slip_distance_lower_limit = 2 # in inches
+
+big_slip_theta_change_upper_limit = 15 # in degrees
+big_slip_theta_change_lower_limit = 5 # in degrees
 
 # spawn particles around the initial position with some noise
 # ensure they are within the map boundaries
@@ -46,7 +55,7 @@ spawn_theta = np.random.normal(initial_robot_theta, 20.0, NUMBER_OF_PARTICLES) %
 spawn_x = np.clip(spawn_x, 0, MAP_DIMENSIONS[0])
 spawn_y = np.clip(spawn_y, 0, MAP_DIMENSIONS[1])
 
-particles = np.column_stack((spawn_x, spawn_y, spawn_theta))
+particles = np.column_stack((spawn_x, spawn_y, spawn_theta, np.ones(NUMBER_OF_PARTICLES) / NUMBER_OF_PARTICLES))
 
 particle_vector_length = 2.5
 particle_theta_rad = np.radians(particles[:, 2])
@@ -67,6 +76,9 @@ distance_sensors = {
 distance_sensor_distances = {"up": 0.0, "down": 0.0, "left": 0.0, "right": 0.0}
 
 keys = {"up": False, "down": False, "left": False, "right": False}
+
+
+
 
 # Visualization setup
 
@@ -115,6 +127,125 @@ particles_heading_vectors = ax.quiver(
     zorder=1,
 
 )
+
+# where the logic for mcl will go, we will read the sensor values, update the particles' weights based on how well they match the sensor readings, resample the particles based on their weights, and then calculate the new predicted position of the robot based on the particles' distribution
+class mcl:
+
+    def __init__(self):
+        
+        self.imu = robot_theta + np.random.normal(0, theta_noise)  # Simulated IMU reading with noise
+
+        # distance sensors(distances to wall)
+
+        self.top_distance = distance_sensor_distances["up"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+        self.bottom_distance = distance_sensor_distances["down"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+        self.left_distance = distance_sensor_distances["left"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+        self.right_distance = distance_sensor_distances["right"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+
+        # odometry readings (change in position and orientation since last update)
+
+        self.last_odometry_x = robot_x + np.random.normal(0, odometry_noise)
+        self.last_odometry_y = robot_y + np.random.normal(0, odometry_noise)
+        self.last_odometry_theta = self.imu
+
+    def update_odometry_and_sensor_readings(self):
+
+        # meant to simulate the odometry readings we would get from the robot's encoders and IMU, which will be used to predict the new position of the particles before we update their weights based on the sensor readings
+
+        self.odometry_x = robot_x + np.random.normal(0, odometry_noise)
+        self.odometry_y = robot_y + np.random.normal(0, odometry_noise)
+        self.odometry_theta = self.imu
+
+        if np.random.rand() < big_slip_chance:
+
+            slip_distance = np.random.uniform(
+                big_slip_distance_lower_limit, big_slip_distance_upper_limit
+            )
+
+            slip_theta_change = np.random.uniform(
+                big_slip_theta_change_lower_limit, big_slip_theta_change_upper_limit
+                )
+            
+            self.odometry_x += slip_distance * math.sin(math.radians(robot_theta))
+            self.odometry_y += slip_distance * math.cos(math.radians(robot_theta))
+            self.odometry_theta = (self.odometry_theta + slip_theta_change) % 360
+
+        # update the distance sensor readings with noise, which will be used to update the weights of the particles based on how well their predicted sensor readings match these actual noisy readings
+
+        self.top_distance = distance_sensor_distances["up"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+        self.bottom_distance = distance_sensor_distances["down"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+        self.left_distance = distance_sensor_distances["left"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+        self.right_distance = distance_sensor_distances["right"] + np.random.normal(
+            0, distance_sensor_noise
+        )
+
+
+    # update happens here or sum like that
+
+    def predict(self):
+
+        self.update_odometry_and_sensor_readings()
+        self.imu = robot_theta + np.random.normal(0, theta_noise)
+        
+        # get the change in position and orientation from the odometry readings, which will be used to predict the new position of the particles
+
+        delta_x = self.odometry_x - self.last_odometry_x
+        delta_y = self.odometry_y - self.last_odometry_y
+        delta_theta = (self.odometry_theta - self.last_odometry_theta) % 360
+
+        self.last_odometry_x = self.odometry_x
+        self.last_odometry_y = self.odometry_y
+        self.last_odometry_theta = self.odometry_theta
+
+        for i in range(NUMBER_OF_PARTICLES):
+
+            # update the particle's position based on the odometry readings, adding some noise to simulate uncertainty
+
+            particles[i, 0] += delta_x + np.random.normal(0, odometry_noise)
+            particles[i, 1] += delta_y + np.random.normal(0, odometry_noise)
+            particles[i, 2] = (particles[i, 2] + delta_theta + np.random.normal(0, theta_noise)) % 360
+
+            # keep the particles within the map boundaries
+
+            particles[i, 0] = np.clip(particles[i, 0], 0, MAP_DIMENSIONS[0])
+            particles[i, 1] = np.clip(particles[i, 1], 0, MAP_DIMENSIONS[1])
+            particles[i, 2] = np.clip(particles[i, 2], 0, 360)
+
+
+
+            
+    def update_weights(self):
+
+        # update the weights of the particles based on how similar their predicted sensor readings are to the actual sensor readings, which will be used to resample the particles and calculate the new predicted position of the robot
+
+        for i in range(NUMBER_OF_PARTICLES):
+
+
+
+
+    def update(self):
+
+        self.predict()
+
+        self.update_weights()        
+
+mcl_instance = mcl()
+
+
 
 # function to calculate the endpoint of a distance sensor ray based on its origin and direction
 # + ensuring it intersects with the field boundaries
@@ -225,6 +356,7 @@ def keep_robot_in_bounds(theta_rad):
 
 def init():
 
+    
     theta_rad = math.radians(robot_theta)
     keep_robot_in_bounds(theta_rad)
     update_distance_sensors(theta_rad)
@@ -266,31 +398,6 @@ def on_release(event):
     if event.key in keys:
         keys[event.key] = False
 
-# where the logic for mcl will go, we will read the sensor values, update the particles' weights based on how well they match the sensor readings, resample the particles based on their weights, and then calculate the new predicted position of the robot based on the particles' distribution
-
-def mcl():
-
-    # Main loop for the MCL simulation
-    # Lets start by defining all the sensors to our use
-
-    imu = robot_theta + np.random.normal(0, 1.0)  # Simulated IMU reading with noise
-
-    # distance sensors(distances to wall)
-
-    top_distance = distance_sensor_distances["up"] + np.random.normal(
-        0, distance_sensor_noise
-    )
-    bottom_distance = distance_sensor_distances["down"] + np.random.normal(
-        0, distance_sensor_noise
-    )
-    left_distance = distance_sensor_distances["left"] + np.random.normal(
-        0, distance_sensor_noise
-    )
-    right_distance = distance_sensor_distances["right"] + np.random.normal(
-        0, distance_sensor_noise
-    )
-
-    last_state = (predicted_x, predicted_y, predicted_theta)
 
 # update
 
@@ -316,6 +423,9 @@ def update(frame):
     keep_robot_in_bounds(theta_rad)
 
     update_distance_sensors(theta_rad)
+
+    mcl_instance.update()
+    
 
     particles_scatter.set_data(particles[:, 0], particles[:, 1])
 
