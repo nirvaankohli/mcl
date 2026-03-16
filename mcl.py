@@ -165,7 +165,7 @@ class mcl:
 
         self.odometry_x = robot_x + np.random.normal(0, odometry_noise)
         self.odometry_y = robot_y + np.random.normal(0, odometry_noise)
-        self.odometry_theta = self.imu
+        self.odometry_theta = self.imu + np.random.normal(0, odometry_theta_noise)
 
         if np.random.rand() < big_slip_chance:
 
@@ -200,14 +200,15 @@ class mcl:
 
     def predict(self):
 
-        self.update_odometry_and_sensor_readings()
         self.imu = robot_theta + np.random.normal(0, theta_noise)
+        self.update_odometry_and_sensor_readings()
 
         # get the change in position and orientation from the odometry readings, which will be used to predict the new position of the particles
 
         delta_x = self.odometry_x - self.last_odometry_x
         delta_y = self.odometry_y - self.last_odometry_y
-        delta_theta = (self.odometry_theta - self.last_odometry_theta) % 360
+        delta_theta = self.odometry_theta - self.last_odometry_theta
+        delta_theta = (delta_theta + 180) % 360 - 180
 
         self.last_odometry_x = self.odometry_x
         self.last_odometry_y = self.odometry_y
@@ -227,7 +228,7 @@ class mcl:
 
             particles[i, 0] = np.clip(particles[i, 0], 0, MAP_DIMENSIONS[0])
             particles[i, 1] = np.clip(particles[i, 1], 0, MAP_DIMENSIONS[1])
-            particles[i, 2] = np.clip(particles[i, 2], 0, 360)
+            particles[i, 2] %= 360
 
     def calculate_expected_sensor_reading(
         self, particle_x, particle_y, particle_theta, sensor_name
@@ -237,21 +238,39 @@ class mcl:
 
         theta_rad = math.radians(particle_theta)
 
+        forward_x = math.sin(theta_rad)
+        forward_y = math.cos(theta_rad)
+        right_x = math.cos(theta_rad)
+        right_y = -math.sin(theta_rad)
+        left_x = -right_x
+        left_y = -right_y
+
+        half_width = ROBOT_SIZE[0] / 2
+        half_length = ROBOT_SIZE[1] / 2
+
         if sensor_name == "top":
-            direction_x = math.sin(theta_rad)
-            direction_y = math.cos(theta_rad)
+            sensor_x = particle_x + forward_x * half_length
+            sensor_y = particle_y + forward_y * half_length
+            direction_x = forward_x
+            direction_y = forward_y
         elif sensor_name == "bottom":
-            direction_x = -math.sin(theta_rad)
-            direction_y = -math.cos(theta_rad)
+            sensor_x = particle_x - forward_x * half_length
+            sensor_y = particle_y - forward_y * half_length
+            direction_x = -forward_x
+            direction_y = -forward_y
         elif sensor_name == "left":
-            direction_x = -math.cos(theta_rad)
-            direction_y = math.sin(theta_rad)
+            sensor_x = particle_x + left_x * half_width
+            sensor_y = particle_y + left_y * half_width
+            direction_x = left_x
+            direction_y = left_y
         elif sensor_name == "right":
-            direction_x = math.cos(theta_rad)
-            direction_y = -math.sin(theta_rad)
+            sensor_x = particle_x + right_x * half_width
+            sensor_y = particle_y + right_y * half_width
+            direction_x = right_x
+            direction_y = right_y
 
         sensor_end_x, sensor_end_y, expected_distance = get_sensor_ray(
-            particle_x, particle_y, direction_x, direction_y
+            sensor_x, sensor_y, direction_x, direction_y
         )
 
         return expected_distance
