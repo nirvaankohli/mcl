@@ -31,24 +31,33 @@ predicted_theta = initial_robot_theta
 
 # define the amount of noise for the sensors and the initial spread of the particles
 
-distance_sensor_noise_ratio = 0.05  # 5% of measured distance
-distance_sensor_noise_floor = 0.2  # min inches noise floor
+distance_noise_near_limit = 80.0  # inches
+distance_noise_near_min = 0.3  # inches error at very close range
+distance_noise_near_max = 1.7  # inches error at 80 in
+distance_noise_far_min_ratio = 0.02  # 2% error starting after 80 in
+distance_noise_far_max_ratio = 0.05  # 5% error at max range
 odometry_noise = 1  # in inches
 
-imu_sensor_noise = 0.8  # in degrees
-close_sensor_weight_boost = 0.15  # slightly favor close wall matches
-odom_anchor_particles = 30  # keep a few particles exactly at odometry pose
-resample_position_noise = 0.2  # inches, added after resampling
-resample_theta_noise = 0.5  # degrees, added after resampling
+# just tryna simulate real life - wont know until we test on the bot
 
-odometry_theta_noise = 1  # in degrees
+imu_sensor_noise = 0.8  # in degrees
+sensor_outlier_probability = 0.05  # likelihood mixture
+motion_model_position_noise = 0.15  # process noise in particle prediction
+motion_model_theta_noise = 0.4  # process heading noise in prediction
+odom_anchor_particles = 15  # keep a few particles exactly at odometry pose
+resample_position_noise = 0.2  # inches, added after resampling if impoverished
+resample_theta_noise = 0.5  # degrees, added after resampling if impoverished
+resample_effective_ratio = 0.55  # adaptive resampling threshold (N_eff / N)
+roughening_spread_threshold = 1.5  # only roughen when cloud is too tight
+
+odometry_theta_noise = 0.3  # in degrees
 theta_noise = 0.2  # in degrees
 
 # simulate big slip (rare)
 
-big_slip_chance = 0.03
-big_slip_distance_upper_limit = 6  # in inches
-big_slip_distance_lower_limit = 2  # in inches
+big_slip_chance = 0.01
+big_slip_distance_upper_limit = 2  # in inches
+big_slip_distance_lower_limit = 0  # in inches
 
 big_slip_theta_change_upper_limit = 15  # in degrees
 big_slip_theta_change_lower_limit = 5  # in degrees
@@ -184,64 +193,74 @@ class mcl:
 
     def __init__(self):
 
-        self.imu = robot_theta + np.random.normal(
-            0, theta_noise
-        )  # Simulated IMU reading with noise
-
+        self.imu = robot_theta
         self.sensors = {}
+        self.last_true_x = robot_x
+        self.last_true_y = robot_y
+        self.last_true_theta = robot_theta
 
-        # distance sensors(distances to wall)
+        # initialize odometry with slight initial offset, then integrate deltas over time
+        self.odometry_x = robot_x + np.random.normal(0, odometry_noise * 0.05)
+        self.odometry_y = robot_y + np.random.normal(0, odometry_noise * 0.05)
+        self.odometry_theta = (
+            robot_theta + np.random.normal(0, odometry_theta_noise * 0.25)
+        ) % 360
+
+        self.last_odometry_x = self.odometry_x
+        self.last_odometry_y = self.odometry_y
+        self.last_odometry_theta = self.odometry_theta
+        self.neff = NUMBER_OF_PARTICLES
+
+        self.read_sensors()
+
+    def distance_sigma(self, distance):
+
+        distance = max(distance, 0.0)
+
+        if distance <= distance_noise_near_limit:
+            near_t = distance / distance_noise_near_limit
+            return distance_noise_near_min + near_t * (
+                distance_noise_near_max - distance_noise_near_min
+            )
+
+        far_span = max(MAP_DIMENSIONS) - distance_noise_near_limit
+        far_t = min(1.0, (distance - distance_noise_near_limit) / max(far_span, 1e-6))
+        far_ratio = distance_noise_far_min_ratio + far_t * (
+            distance_noise_far_max_ratio - distance_noise_far_min_ratio
+        )
+        
+        return distance * far_ratio
+
+    def read_sensors(self):
+        self.imu = robot_theta + np.random.normal(0, theta_noise)
 
         self.sensors["top"] = distance_sensor_distances["top"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["top"], 1.0),
-            ),
+            0, self.distance_sigma(distance_sensor_distances["top"])
         )
         self.sensors["bottom"] = distance_sensor_distances["bottom"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["bottom"], 1.0),
-            ),
+            0, self.distance_sigma(distance_sensor_distances["bottom"])
         )
         self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["left"], 1.0),
-            ),
+            0, self.distance_sigma(distance_sensor_distances["left"])
         )
         self.sensors["right"] = distance_sensor_distances["right"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["right"], 1.0),
-            ),
+            0, self.distance_sigma(distance_sensor_distances["right"])
         )
         self.sensors["imu"] = self.imu
-
-        # odometry readings (change in position and orientation since last update)
-
-        self.last_odometry_x = robot_x + np.random.normal(0, odometry_noise)
-        self.last_odometry_y = robot_y + np.random.normal(0, odometry_noise)
-        self.last_odometry_theta = self.imu + np.random.normal(0, odometry_theta_noise)
-        self.odometry_x = self.last_odometry_x
-        self.odometry_y = self.last_odometry_y
-        self.odometry_theta = self.last_odometry_theta
 
     def update_odometry_and_sensor_readings(self):
 
         # meant to simulate the odometry readings we would get from the robot's encoders and IMU, which will be used to predict the new position of the particles before we update their weights based on the sensor readings
 
-        self.odometry_x = robot_x + np.random.normal(0, odometry_noise)
-        self.odometry_y = robot_y + np.random.normal(0, odometry_noise)
-        self.odometry_theta = self.imu + np.random.normal(0, odometry_theta_noise)
+        true_delta_x = robot_x - self.last_true_x
+        true_delta_y = robot_y - self.last_true_y
+        true_delta_theta = (robot_theta - self.last_true_theta + 180) % 360 - 180
+
+        odom_delta_x = true_delta_x + np.random.normal(0, odometry_noise * 0.2)
+        odom_delta_y = true_delta_y + np.random.normal(0, odometry_noise * 0.2)
+        odom_delta_theta = true_delta_theta + np.random.normal(
+            0, odometry_theta_noise * 0.25
+        )
 
         if np.random.rand() < big_slip_chance:
 
@@ -253,51 +272,24 @@ class mcl:
                 big_slip_theta_change_lower_limit, big_slip_theta_change_upper_limit
             )
 
-            self.odometry_x += slip_distance * math.sin(math.radians(robot_theta))
-            self.odometry_y += slip_distance * math.cos(math.radians(robot_theta))
-            self.odometry_theta = (self.odometry_theta + slip_theta_change) % 360
+            odom_delta_x += slip_distance * math.sin(math.radians(robot_theta))
+            odom_delta_y += slip_distance * math.cos(math.radians(robot_theta))
+            odom_delta_theta += slip_theta_change
 
-        # update the distance sensor readings with noise, which will be used to update the weights of the particles based on how well their predicted sensor readings match these actual noisy readings
+        self.odometry_x += odom_delta_x
+        self.odometry_y += odom_delta_y
+        self.odometry_theta = (self.odometry_theta + odom_delta_theta) % 360
 
-        self.sensors["top"] = distance_sensor_distances["top"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["top"], 1.0),
-            ),
-        )
-        self.sensors["bottom"] = distance_sensor_distances["bottom"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["bottom"], 1.0),
-            ),
-        )
-        self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["left"], 1.0),
-            ),
-        )
-        self.sensors["right"] = distance_sensor_distances["right"] + np.random.normal(
-            0,
-            max(
-                distance_sensor_noise_floor,
-                distance_sensor_noise_ratio
-                * max(distance_sensor_distances["right"], 1.0),
-            ),
-        )
-        self.sensors["imu"] = self.imu
+        self.last_true_x = robot_x
+        self.last_true_y = robot_y
+        self.last_true_theta = robot_theta
+
+        self.read_sensors()
 
     # update happens here or sum like that
 
     def predict(self):
 
-        self.imu = robot_theta + np.random.normal(0, theta_noise)
         self.update_odometry_and_sensor_readings()
 
         # get the change in position and orientation from the odometry readings, which will be used to predict the new position of the particles
@@ -315,10 +307,16 @@ class mcl:
 
             # update the particle's position based on the odometry readings, adding some noise to simulate uncertainty
 
-            particles[i, 0] += delta_x + np.random.normal(0, odometry_noise)
-            particles[i, 1] += delta_y + np.random.normal(0, odometry_noise)
+            particles[i, 0] += delta_x + np.random.normal(
+                0, motion_model_position_noise
+            )
+            particles[i, 1] += delta_y + np.random.normal(
+                0, motion_model_position_noise
+            )
             particles[i, 2] = (
-                particles[i, 2] + delta_theta + np.random.normal(0, theta_noise)
+                particles[i, 2]
+                + delta_theta
+                + np.random.normal(0, motion_model_theta_noise)
             ) % 360
 
             # keep the particles within the map boundaries
@@ -376,9 +374,13 @@ class mcl:
 
         # update the weights of the particles based on how similar their predicted sensor readings are to the actual sensor readings, which will be used to resample the particles and calculate the new predicted position of the robot
 
+        log_weights = np.zeros(NUMBER_OF_PARTICLES)
+        max_field_dimension = max(MAP_DIMENSIONS)
+        uniform_distance_likelihood = 1.0 / max_field_dimension
+
         for i in range(NUMBER_OF_PARTICLES):
 
-            sensor_weight_results = []
+            log_weight = 0.0
 
             for sensor_name in distance_sensor_available:
 
@@ -391,28 +393,33 @@ class mcl:
                     particle_x, particle_y, particle_theta, sensor_name
                 )
 
-                sensor_sigma = max(
-                    distance_sensor_noise_floor,
-                    distance_sensor_noise_ratio * max(expected_distance, 1.0),
-                )
-                max_field_dimension = max(MAP_DIMENSIONS)
-                closeness = 1.0 - min(predicted_distance / max_field_dimension, 1.0)
-                close_bonus = 1.0 + close_sensor_weight_boost * closeness
+                sensor_sigma = self.distance_sigma(expected_distance)
 
-                # calculate the weight contribution from this sensor using a "Gaussian probability density function"(copy pasted this forumala, i cant lie), which will be higher if the predicted distance is close to the actual distance and lower if it is far away, taking into account the noise of the sensor
-
-                sensor_weight_results.append(
-                    np.exp(
-                        -0.5
-                        * ((predicted_distance - expected_distance) / sensor_sigma) ** 2
-                    )
-                    * close_bonus
+                gaussian_likelihood = np.exp(
+                    -0.5
+                    * ((predicted_distance - expected_distance) / sensor_sigma) ** 2
+                ) / (sensor_sigma * math.sqrt(2 * math.pi))
+                sensor_likelihood = (
+                    (1 - sensor_outlier_probability) * gaussian_likelihood
+                    + sensor_outlier_probability * uniform_distance_likelihood
                 )
+                log_weight += math.log(max(sensor_likelihood, 1e-300))
 
             heading_error = (particle_theta - self.sensors["imu"] + 180) % 360 - 180
-            imu_weight = np.exp(-0.5 * (heading_error / imu_sensor_noise) ** 2)
+            imu_likelihood = np.exp(-0.5 * (heading_error / imu_sensor_noise) ** 2) / (
+                imu_sensor_noise * math.sqrt(2 * math.pi)
+            )
+            log_weight += math.log(max(imu_likelihood, 1e-300))
 
-            particles[i, 3] = np.prod(sensor_weight_results) * imu_weight
+            log_weights[i] = log_weight
+
+        max_log_weight = np.max(log_weights)
+        weights = np.exp(log_weights - max_log_weight)
+        weights_sum = np.sum(weights)
+        if weights_sum <= 0:
+            particles[:, 3] = 1.0 / NUMBER_OF_PARTICLES
+        else:
+            particles[:, 3] = weights / weights_sum
 
     def resample_particles(self):
 
@@ -422,10 +429,13 @@ class mcl:
 
         weights = particles[:, 3]
 
-        # normalize weights?
-
         weights += 1e-300
         weights /= np.sum(weights)
+
+        self.neff = 1.0 / np.sum(weights**2)
+        if self.neff >= resample_effective_ratio * NUMBER_OF_PARTICLES:
+            particles[:, 3] = weights
+            return
 
         # spin wheel
 
@@ -442,17 +452,19 @@ class mcl:
             new_generation[:anchor_count, 1] = self.odometry_y
             new_generation[:anchor_count, 2] = self.odometry_theta
 
-        # roughening: add a bit of noise after resampling to maintain diversity
-        new_generation[:, 0] += np.random.normal(
-            0, resample_position_noise, NUMBER_OF_PARTICLES
-        )
-        new_generation[:, 1] += np.random.normal(
-            0, resample_position_noise, NUMBER_OF_PARTICLES
-        )
-        new_generation[:, 2] = (
-            new_generation[:, 2]
-            + np.random.normal(0, resample_theta_noise, NUMBER_OF_PARTICLES)
-        ) % 360
+        spread = np.mean(np.std(new_generation[:, :2], axis=0))
+        if spread < roughening_spread_threshold:
+            # roughening only when cloud is too tight
+            new_generation[:, 0] += np.random.normal(
+                0, resample_position_noise, NUMBER_OF_PARTICLES
+            )
+            new_generation[:, 1] += np.random.normal(
+                0, resample_position_noise, NUMBER_OF_PARTICLES
+            )
+            new_generation[:, 2] = (
+                new_generation[:, 2]
+                + np.random.normal(0, resample_theta_noise, NUMBER_OF_PARTICLES)
+            ) % 360
 
         new_generation[:, 0] = np.clip(new_generation[:, 0], 0, MAP_DIMENSIONS[0])
         new_generation[:, 1] = np.clip(new_generation[:, 1], 0, MAP_DIMENSIONS[1])
@@ -475,12 +487,18 @@ class mcl:
 
         # calculate the average position and orientation of the particles, which will be used as the predicted position of the robot, since after resampling we expect most of the particles to be clustered around the robot's actual position
 
-        avg_x = np.mean(particles[:, 0])
-        avg_y = np.mean(particles[:, 1])
+        weights = particles[:, 3]
+        if np.sum(weights) <= 0:
+            weights = np.ones(NUMBER_OF_PARTICLES) / NUMBER_OF_PARTICLES
+        else:
+            weights = weights / np.sum(weights)
+
+        avg_x = np.average(particles[:, 0], weights=weights)
+        avg_y = np.average(particles[:, 1], weights=weights)
 
         thetas_rad = np.radians(particles[:, 2])
-        avg_sin = np.mean(np.sin(thetas_rad))
-        avg_cos = np.mean(np.cos(thetas_rad))
+        avg_sin = np.average(np.sin(thetas_rad), weights=weights)
+        avg_cos = np.average(np.cos(thetas_rad), weights=weights)
 
         avg_theta_rad = math.atan2(avg_sin, avg_cos)
         avg_theta = math.degrees(avg_theta_rad) % 360
