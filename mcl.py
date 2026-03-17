@@ -31,8 +31,15 @@ predicted_theta = initial_robot_theta
 
 # define the amount of noise for the sensors and the initial spread of the particles
 
-distance_sensor_noise = 0.5  # in inches
-odometry_noise = 3  # in inches
+distance_sensor_noise_ratio = 0.05  # 5% of measured distance
+distance_sensor_noise_floor = 0.2  # min inches noise floor
+odometry_noise = 1  # in inches
+
+imu_sensor_noise = 0.8  # in degrees
+close_sensor_weight_boost = 0.15  # slightly favor close wall matches
+odom_anchor_particles = 30  # keep a few particles exactly at odometry pose
+resample_position_noise = 0.2  # inches, added after resampling
+resample_theta_noise = 0.5  # degrees, added after resampling
 
 odometry_theta_noise = 1  # in degrees
 theta_noise = 0.2  # in degrees
@@ -186,17 +193,38 @@ class mcl:
         # distance sensors(distances to wall)
 
         self.sensors["top"] = distance_sensor_distances["top"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["top"], 1.0),
+            ),
         )
         self.sensors["bottom"] = distance_sensor_distances["bottom"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["bottom"], 1.0),
+            ),
         )
         self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["left"], 1.0),
+            ),
         )
         self.sensors["right"] = distance_sensor_distances["right"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["right"], 1.0),
+            ),
         )
+        self.sensors["imu"] = self.imu
 
         # odometry readings (change in position and orientation since last update)
 
@@ -232,17 +260,38 @@ class mcl:
         # update the distance sensor readings with noise, which will be used to update the weights of the particles based on how well their predicted sensor readings match these actual noisy readings
 
         self.sensors["top"] = distance_sensor_distances["top"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["top"], 1.0),
+            ),
         )
         self.sensors["bottom"] = distance_sensor_distances["bottom"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["bottom"], 1.0),
+            ),
         )
         self.sensors["left"] = distance_sensor_distances["left"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["left"], 1.0),
+            ),
         )
         self.sensors["right"] = distance_sensor_distances["right"] + np.random.normal(
-            0, distance_sensor_noise
+            0,
+            max(
+                distance_sensor_noise_floor,
+                distance_sensor_noise_ratio
+                * max(distance_sensor_distances["right"], 1.0),
+            ),
         )
+        self.sensors["imu"] = self.imu
 
     # update happens here or sum like that
 
@@ -342,20 +391,28 @@ class mcl:
                     particle_x, particle_y, particle_theta, sensor_name
                 )
 
+                sensor_sigma = max(
+                    distance_sensor_noise_floor,
+                    distance_sensor_noise_ratio * max(expected_distance, 1.0),
+                )
+                max_field_dimension = max(MAP_DIMENSIONS)
+                closeness = 1.0 - min(predicted_distance / max_field_dimension, 1.0)
+                close_bonus = 1.0 + close_sensor_weight_boost * closeness
+
                 # calculate the weight contribution from this sensor using a "Gaussian probability density function"(copy pasted this forumala, i cant lie), which will be higher if the predicted distance is close to the actual distance and lower if it is far away, taking into account the noise of the sensor
 
                 sensor_weight_results.append(
                     np.exp(
                         -0.5
-                        * (
-                            (predicted_distance - expected_distance)
-                            / distance_sensor_noise
-                        )
-                        ** 2
+                        * ((predicted_distance - expected_distance) / sensor_sigma) ** 2
                     )
+                    * close_bonus
                 )
 
-            particles[i, 3] = np.prod(sensor_weight_results)
+            heading_error = (particle_theta - self.sensors["imu"] + 180) % 360 - 180
+            imu_weight = np.exp(-0.5 * (heading_error / imu_sensor_noise) ** 2)
+
+            particles[i, 3] = np.prod(sensor_weight_results) * imu_weight
 
     def resample_particles(self):
 
@@ -377,6 +434,28 @@ class mcl:
         )
 
         new_generation = particles[indices]
+
+        # keep a few particles exactly at what odometry believes (helps recovery)
+        anchor_count = min(odom_anchor_particles, NUMBER_OF_PARTICLES)
+        if anchor_count > 0:
+            new_generation[:anchor_count, 0] = self.odometry_x
+            new_generation[:anchor_count, 1] = self.odometry_y
+            new_generation[:anchor_count, 2] = self.odometry_theta
+
+        # roughening: add a bit of noise after resampling to maintain diversity
+        new_generation[:, 0] += np.random.normal(
+            0, resample_position_noise, NUMBER_OF_PARTICLES
+        )
+        new_generation[:, 1] += np.random.normal(
+            0, resample_position_noise, NUMBER_OF_PARTICLES
+        )
+        new_generation[:, 2] = (
+            new_generation[:, 2]
+            + np.random.normal(0, resample_theta_noise, NUMBER_OF_PARTICLES)
+        ) % 360
+
+        new_generation[:, 0] = np.clip(new_generation[:, 0], 0, MAP_DIMENSIONS[0])
+        new_generation[:, 1] = np.clip(new_generation[:, 1], 0, MAP_DIMENSIONS[1])
 
         # reset weights to uniform after resampling, since we have a new generation of particles and we will update their weights based on the sensor readings in the next iteration
         # replaces old particles with the new resampled particles, and resets their weights to uniform since we will update them based on the sensor readings in the next iteration
@@ -431,8 +510,6 @@ def get_sensor_ray(origin_x, origin_y, direction_x, direction_y):
         distances_to_wall.append((0 - origin_y) / direction_y)
 
     ray_distance = min(distance for distance in distances_to_wall if distance >= 0)
-
-
 
     return (
         origin_x + direction_x * ray_distance,
