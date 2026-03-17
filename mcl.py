@@ -45,7 +45,7 @@ sensor_outlier_probability = 0.05  # likelihood mixture
 motion_model_position_noise = 0.15  # process noise in particle prediction
 motion_model_theta_noise = 0.4  # process heading noise in prediction
 odom_anchor_particles = 15  # keep a few particles exactly at odometry pose
-resample_position_noise = 0.2  # inches, added after resampling if impoverished
+resample_position_noise = 0.3  # inches, added after resampling if impoverished
 resample_theta_noise = 0.5  # degrees, added after resampling if impoverished
 resample_effective_ratio = 0.55  # adaptive resampling threshold (N_eff / N)
 roughening_spread_threshold = 1.5  # only roughen when cloud is too tight
@@ -228,7 +228,7 @@ class mcl:
         far_ratio = distance_noise_far_min_ratio + far_t * (
             distance_noise_far_max_ratio - distance_noise_far_min_ratio
         )
-        
+
         return distance * far_ratio
 
     def read_sensors(self):
